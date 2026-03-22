@@ -1,0 +1,11 @@
+fastapi==0.135.1
+uvicorn[standard]==0.41.0
+celery==5.6.2
+redis==7.3.0
+python-multipart==0.0.22
+laspy==2.7.0
+pylas==0.8.1
+numpy==1.26.4
+torch==2.1.0
+torch-geometric==2.7.0
+open3d==0.19.0

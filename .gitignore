@@ -1,0 +1,14 @@
+venv/
+.venv/
+project/
+internal_celery/
+__pycache__/
+*.pyc
+*.log
+uploads/
+results/
+*.laz
+*.las
+*.pth
+.vscode/
+.idea/

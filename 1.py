@@ -1,0 +1,135 @@
+import os
+import shutil
+import logging
+from logging.handlers import RotatingFileHandler
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
+
+from tasks import app as celery_app
+from tasks import upload_laz, process_laz
+from celery.result import AsyncResult
+
+logger = logging.getLogger("PointcloudAPI")
+logger.setLevel(logging.INFO)
+
+file_handler = RotatingFileHandler(
+    "app.log",
+    maxBytes=5 * 1024 * 1024,
+    backupCount=5,
+    encoding='utf-8'
+)
+file_handler.setFormatter(
+    logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+)
+
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(
+    logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+)
+
+logger.addHandler(file_handler)
+logger.addHandler(stream_handler)
+
+UPLOAD_DIR = "uploads"
+RESULT_DIR = "results"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(RESULT_DIR, exist_ok=True)
+
+app = FastAPI(title="Шлюз сегментатора облаков точек")
+
+@app.post("/process/")
+async def process_file(file: UploadFile = File(...)):
+    if not file.filename.endswith(('.las', '.laz')):
+        raise HTTPException(
+            status_code=400,
+            detail="Поддерживаются только файлы .las или .laz"
+        )
+
+    temp_path = os.path.join(UPLOAD_DIR, f"raw_{file.filename}")
+    with open(temp_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    logger.info(f"Файл {file.filename} успешно сохранён по пути: {temp_path}")
+    logger.info("Запуск цепочки задач Celery (upload_laz → process_laz)")
+
+    chain = (upload_laz.s(temp_path) | process_laz.s())
+    result = chain.apply_async()
+
+    logger.info(f"Задача Celery успешно поставлена в очередь. ID: {result.id}")
+
+    return {
+        "task_id": result.id,
+        "status": "в_очереди",
+        "info": "Файл принят и поставлен в очередь на обработку"
+    }
+
+@app.get("/status/{task_id}")
+async def get_status(task_id: str):
+    logger.info(f"Получен запрос статуса для задачи: {task_id}")
+
+    res = AsyncResult(task_id, app=celery_app)
+    response = {"task_id": task_id, "state": res.state}
+
+    if res.state == 'PENDING':
+        response["status"] = "ожидание"
+        response["message"] = "Задача ожидает запуска в очереди"
+    elif res.state == 'PROCESSING':
+        response["progress"] = res.info.get('progress') if isinstance(res.info, dict) else None
+        response["message"] = res.info.get('message') if isinstance(res.info, dict) else "Обработка в процессе"
+        response["eta"] = res.info.get('eta') if isinstance(res.info, dict) else "Оценивается..." # Вытягиваем ETA
+    elif res.state == 'SUCCESS':
+        response["status"] = "готово"
+        response["result_summary"] = res.result
+    elif res.state == 'FAILURE':
+        response["status"] = "ошибка"
+        response["error_detail"] = str(res.info)
+    else:
+        response["status"] = "неизвестно"
+        response["message"] = "Неизвестное состояние задачи"
+
+    return response
+
+@app.get("/download/{task_id}")
+async def download_file(task_id: str):
+    logger.info(f"Получен запрос на скачивание результата для задачи: {task_id}")
+
+    res = AsyncResult(task_id, app=celery_app)
+
+    if not res.ready():
+        raise HTTPException(
+            status_code=400,
+            detail="Задача всё ещё обрабатывается или не найдена"
+        )
+
+    if res.failed():
+        raise HTTPException(
+            status_code=500,
+            detail="Задача завершилась с ошибкой"
+        )
+
+    output_path = os.path.join(RESULT_DIR, f"result_{task_id}.laz")
+
+    if not os.path.exists(output_path):
+        logger.error(f"Файл результата {output_path} не найден на диске!")
+        raise HTTPException(
+            status_code=404,
+            detail="Файл результата отсутствует на сервере"
+        )
+
+    logger.info(f"Файл результата найден. Начинаем отправку: {output_path}")
+
+    return FileResponse(
+        output_path,
+        media_type='application/octet-stream',
+        filename=f"segmented_{task_id}.laz"
+    )
+
+def cleanup_files(temp_path: str):
+    if os.path.exists(temp_path):
+        os.remove(temp_path)
+        logger.info(f"Временный файл {temp_path} успешно удалён")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
