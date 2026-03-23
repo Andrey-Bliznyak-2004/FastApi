@@ -39,8 +39,8 @@ def read_las(file_path, load_points=True):
     """
     las = laspy.read(file_path)
     points = np.vstack((las.x, las.y, las.z)).T.astype(np.float32)
-    
-    
+
+    # Чтение RGB
     if hasattr(las, 'red') and hasattr(las, 'green') and hasattr(las, 'blue'):
         rgb_raw = np.vstack((las.red, las.green, las.blue)).T
         if rgb_raw.max() > 255:
@@ -49,6 +49,7 @@ def read_las(file_path, load_points=True):
             rgb = rgb_raw.astype(np.float32) / 255.0
     else:
         rgb = np.zeros((len(points), 3), dtype=np.float32)
+        print('Warning: No RGB data found, using zeros')
 
     metadata = {
         'filename': os.path.basename(file_path),
@@ -111,33 +112,31 @@ def segment_point_cloud(points, rgb, progress_callback=None):
     return labels, class_stats
 
 def save_segmented_las(file_path, points, rgb, labels, output_path):
-    """Сохраняет сегментированное облако с RGB-раскраской и классификацией"""
-    
+    """Сохраняет сегментированное облако в LAS/LAZ файл"""
+    import laspy
+
+    # Создаем новый LAS файл
     header = laspy.LasHeader(point_format=3, version="1.4")
     header.scale = [0.01, 0.01, 0.01]
     header.offset = [points[:,0].min(), points[:,1].min(), points[:,2].min()]
-    
+
     las = laspy.LasData(header)
     las.x = points[:, 0]
     las.y = points[:, 1]
     las.z = points[:, 2]
-   
+
+    # Сохраняем RGB
     colors = np.zeros((len(labels), 3), dtype=np.uint16)
     colors[labels == 0] = [65535, 0, 0]      
     colors[labels == 1] = [0, 65535, 0]      
     colors[labels == 2] = [0, 0, 65535]      
     colors[labels == 3] = [65535, 65535, 0]  
-    
     las.red = colors[:, 0]
     las.green = colors[:, 1]
     las.blue = colors[:, 2]
-    
-<<<<<<< HEAD
-=======
     # Сохраняем метки сегментации в поле user_data
+    # (или в дополнительное поле, если нужно)
     las.add_extra_dim(laspy.ExtraBytesParams(name="classification", type="u1"))
->>>>>>> 9f1a543dad5b36b2cf35f0a8e297b7bb055c31bf
     las.classification = labels.astype(np.uint8)
-    
+
     las.write(output_path)
-    return output_path
