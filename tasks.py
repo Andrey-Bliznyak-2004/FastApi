@@ -57,11 +57,11 @@ def upload_laz(self, file_path):
     return metadata
 
 @app.task(bind=True, name='process_laz')
-def process_laz(self, upload_data): # Переименовали аргумент для ясности
+def process_laz(self, upload_data): 
     task_id = self.request.id
-    logger.info(f'Запущена задача обработки: {task_id}')
+    logger.info(f'Задача process_laz запущена: {task_id}')
 
-    # Если прислали словарь, берем ID из него
+    # ПРОВЕРКА: если нам прислали словарь (результат chain), берем ID из него
     if isinstance(upload_data, dict):
         upload_task_id = upload_data.get('source_task_id')
     else:
