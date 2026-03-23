@@ -9,11 +9,10 @@ from utils import read_las, segment_point_cloud, save_segmented_las
 import time
 
 
-REDIS_HOST = 'localhost'
 REDIS_PORT = 6379
 REDIS_DB = 0
-REDIS_URL = f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}'
-
+REDIS_HOST = os.getenv('REDIS_HOST', 'redis') 
+REDIS_URL = f'redis://{REDIS_HOST}:6379/0'
 app = Celery('tasks', broker=REDIS_URL, backend=REDIS_URL)
 logger = logging.getLogger("ClientLog")
 logger.setLevel(logging.INFO)
@@ -112,7 +111,7 @@ def process_laz(self, upload_data): # Переименовали аргумен�
     # Дополняем статистику недостающими классами 
     full_stats = {0: 0, 1: 0, 2: 0, 3: 0}
     full_stats.update(class_stats)
-    class_stats = full_stats  # теперь словарь содержит все ключи
+    class_stats = full_stats 
 
     redis_client.setex(f'laz_labels:{task_id}', 3600, pickle.dumps(labels))
 

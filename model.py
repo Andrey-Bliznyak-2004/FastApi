@@ -41,6 +41,7 @@ class DGCNN_seg(nn.Module):
             nn.Linear(256, out_channels)
         )
 
+    # Функция для построения k-NN графа
     def forward(self, data):
         x, edge_index, batch = data.x, data.edge_index, data.batch
 

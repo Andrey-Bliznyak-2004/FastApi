@@ -3,12 +3,14 @@ import shutil
 import logging
 from logging.handlers import RotatingFileHandler
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from starlette.background import BackgroundTask
 import uvicorn
 from tasks import app as celery_app
 from tasks import upload_laz, process_laz
 from celery.result import AsyncResult
+import plotly.graph_objs as go
+import numpy as np
 
 # Настройка логгирования
 logger = logging.getLogger("PointcloudAPI")
@@ -136,8 +138,36 @@ async def download_file(task_id: str):
         media_type='application/octet-stream',
         filename=f"segmented_{task_id}.laz"
     )
+@app.get("/visualize/{task_id}", response_class=HTMLResponse)
+async def visualize_web(task_id: str):
+    output_path = os.path.join(RESULT_DIR, f"result_{task_id}.laz")
+    
+    if not os.path.exists(output_path):
+        raise HTTPException(status_code=404, detail="Файл результата не найден")
 
-# Функция для очистки временных файлов         
+    # Чтение данных
+    las = laspy.read(output_path) 
+    step = 100 
+    x, y, z = las.x[::step], las.y[::step], las.z[::step]
+    
+    # Извлечение цветов, если они есть
+    colors = None
+    if hasattr(las, 'classification'):
+        labels = las.classification[::step]
+        # Простая цветовая мапа для примера
+        colors = ['red' if l == 0 else 'green' if l == 1 else 'blue' for l in labels]
+
+    trace = go.Scatter3d(
+        x=x, y=y, z=z,
+        mode='markers',
+        marker=dict(size=2, color=colors)
+    )
+    
+    fig = go.Figure(data=[trace])
+    fig.update_layout(margin=dict(l=0, r=0, b=0, t=0))
+    
+    return fig.to_html(full_html=True, include_plotlyjs='cdn')
+    
 def cleanup_files(temp_path: str):
     if os.path.exists(temp_path):
         os.remove(temp_path)
