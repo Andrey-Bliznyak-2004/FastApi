@@ -4,16 +4,17 @@ import torch.nn.functional as F
 from torch_geometric.nn import EdgeConv, global_max_pool
 
 class DGCNN_seg(nn.Module):
-    def __init__(self, in_channels=3, out_channels=4, k=16):  # изменено на 3
+    def __init__(self, in_channels=3, out_channels=4, k=16): 
         super().__init__()
         self.k = k
 
+        # DGCNN слои
         self.conv1 = EdgeConv(nn=nn.Sequential(
             nn.Linear(2*in_channels, 64),
             nn.ReLU(),
             nn.Linear(64, 64)
         ), aggr='max')
-
+        #
         self.conv2 = EdgeConv(nn=nn.Sequential(
             nn.Linear(2*64, 128),
             nn.ReLU(),

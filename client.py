@@ -35,15 +35,16 @@ logger.addHandler(stream_handler)
 # Подключаемся к Redis (для получения меток)
 redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=False)
 
+# Визуализация результата
 def visualize_result(file_path, labels):
-    # Читаем точки из файла
+
     las = laspy.read(file_path)
     points = np.vstack((las.x, las.y, las.z)).T
 
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(points)
 
-    # Цвета для классов: фон-серый, дорога-зелёный, здания-синий, машины-красный
+    # Цвета для классов: фон-красный, дорога-зелёный, здания-синий, машины-жёлтый
     colors = np.zeros((len(points), 3))
     colors[labels == 0] = [1, 0, 0]  # фон
     colors[labels == 1] = [0, 1, 0]        # дорога
@@ -54,7 +55,7 @@ def visualize_result(file_path, labels):
     o3d.visualization.draw_geometries([pcd], window_name="Segmented Point Cloud")
 
 def main(file_path):
-    # Загрузка
+
     upload_task = upload_laz.delay(file_path)
     logger.info(f'ID загруженой задачи: {upload_task.id}')
     while not upload_task.ready():

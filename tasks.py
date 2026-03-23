@@ -1,3 +1,5 @@
+import logging
+from logging.handlers import RotatingFileHandler
 import os
 import pickle
 import redis
@@ -13,7 +15,26 @@ REDIS_DB = 0
 REDIS_URL = f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}'
 
 app = Celery('tasks', broker=REDIS_URL, backend=REDIS_URL)
-logger = get_task_logger(__name__)
+logger = logging.getLogger("ClientLog")
+logger.setLevel(logging.INFO)
+
+file_handler = RotatingFileHandler(
+    "app.log",
+    maxBytes=5 * 1024 * 1024,
+    backupCount=5,
+    encoding='utf-8'
+)
+file_handler.setFormatter(
+    logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+)
+
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(
+    logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+)
+
+logger.addHandler(file_handler)
+logger.addHandler(stream_handler)
 
 # Клиент для Redis 
 redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=False)
