@@ -1,4 +1,5 @@
 import laspy
+from logging.handlers import RotatingFileHandler
 import numpy as np
 import torch
 from torch_geometric.data import Data, Batch
@@ -48,7 +49,6 @@ def read_las(file_path, load_points=True):
             rgb = rgb_raw.astype(np.float32) / 255.0
     else:
         rgb = np.zeros((len(points), 3), dtype=np.float32)
-        print('Warning: No RGB data found, using zeros')
 
     metadata = {
         'filename': os.path.basename(file_path),
@@ -133,7 +133,6 @@ def save_segmented_las(file_path, points, rgb, labels, output_path):
         las.blue = rgb_int[:, 2]
     
     # Сохраняем метки сегментации в поле user_data
-    # (или в дополнительное поле, если нужно)
     las.add_extra_dim(laspy.ExtraBytesParams(name="classification", type="u1"))
     las.classification = labels.astype(np.uint8)
     

@@ -8,7 +8,6 @@ class DGCNN_seg(nn.Module):
         super().__init__()
         self.k = k
 
-        # EdgeConv слои (MLP для каждого ребра)
         self.conv1 = EdgeConv(nn=nn.Sequential(
             nn.Linear(2*in_channels, 64),
             nn.ReLU(),
@@ -49,7 +48,7 @@ class DGCNN_seg(nn.Module):
         h3 = self.conv3(h2, edge_index)
 
         # Конкатенируем все промежуточные представления
-        h = torch.cat([h1, h2, h3], dim=1)  # (N, total_features)
+        h = torch.cat([h1, h2, h3], dim=1) 
 
-        out = self.mlp(h)                   # (N, out_channels)
+        out = self.mlp(h)                 
         return out
