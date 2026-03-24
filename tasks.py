@@ -5,9 +5,9 @@ import pickle
 import redis
 from celery import Celery
 from celery.utils.log import get_task_logger
-from utils import read_las, segment_point_cloud, save_segmented_las
+from utils import read_las, segment_point_cloud, save_segmented_las, generate_plotly_html
 import time
-from utils import generate_plotly_html
+
 
 REDIS_PORT = 6379
 REDIS_DB = 0
@@ -125,10 +125,8 @@ def process_laz(self, upload_data):
         'message': 'Сегментация завершена, результат сохранён в файл: ' + output_path
     }
     return result
-    
 @app.task(bind=True, name='generate_visualization_task')
 def generate_visualization_task(self, prev_result):
-    """Задача создания HTML визуализации после обработки."""
     task_id = prev_result.get('task_id')
     output_path = os.path.join("results", f"result_{task_id}.laz")
     html_path = os.path.join("results", f"viz_{task_id}.html")

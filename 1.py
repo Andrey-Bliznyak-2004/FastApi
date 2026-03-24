@@ -5,7 +5,8 @@ from logging.handlers import RotatingFileHandler
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 import uvicorn
-
+import uuid
+from celery import chain
 from tasks import app as celery_app
 from tasks import upload_laz, process_laz, generate_visualization_task
 from celery.result import AsyncResult
@@ -54,17 +55,27 @@ async def process_file(file: UploadFile = File(...)):
 
     logger.info(f"Файл {file.filename} сохранен: {temp_path}")
 
-   
-    workflow = (
-        upload_laz.s(temp_path) |
-        process_laz.s() |                   
-        generate_visualization_task.s()     
-    )
+    # Генерируем уникальный ID для главной задачи обработки (process_laz)
+    main_task_id = str(uuid.uuid4())
 
-    async_result = workflow.apply_async()    # ← сохраняем!
-    logger.info(f"Цепочка задач запущена. ID финальной задачи: {result.id}")
+    # Используем Celery chain для строго последовательного выполнения.
+    # Результат первой задачи (метаданные) автоматически передастся во вторую,
+    # а результат второй (статистика) — в третью (визуализацию).
+    workflow = chain(
+        upload_laz.s(temp_path),
+        process_laz.s().set(task_id=main_task_id),
+        generate_visualization_task.s()
+    )
+    
+    # Запускаем цепочку
+    workflow.apply_async()
+
+    logger.info(f"Цепочка задач запущена. ID главной задачи: {main_task_id}")
+    
+    # Возвращаем ID именно процесса сегментации, 
+    # чтобы эндпоинт /status мог считывать проценты прогресса
     return {
-        "task_id": async_result.id,          # ← это ID именно generate_visualization_task
+        "task_id": main_task_id,         
         "status": "PENDING",
         "info": "Обработка запущена"
     }
@@ -80,7 +91,6 @@ async def get_status(task_id: str):
             "message": "Задача ожидает выполнения"
         })
     elif res.state == 'PROCESSING':
-        # Данные о прогрессе и ETA передаются через self.update_state в tasks.py
         info = res.info if isinstance(res.info, dict) else {}
         response.update({
             "status": "Обработка",
