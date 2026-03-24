@@ -4,6 +4,6 @@ celery
 redis
 python-multipart
 laspy[lazrs,pylas]
-numpy
+numpy<2.0.0
 open3d
 plotly

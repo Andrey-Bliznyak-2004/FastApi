@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir \
     torch-sparse \
     torch-cluster \
     torch-geometric \
-    -f https://data.pyg.org/whl/torch-2.4.0+cu121.html
+    -f https://data.pyg.org/whl/torch-2.4.0+cpu.html
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

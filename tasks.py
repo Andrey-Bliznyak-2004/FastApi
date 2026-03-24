@@ -7,7 +7,8 @@ from celery import Celery
 from celery.utils.log import get_task_logger
 from utils import read_las, segment_point_cloud, save_segmented_las
 import time
-
+import plotly.graph_objs as go
+import laspy
 
 REDIS_PORT = 6379
 REDIS_DB = 0
@@ -125,3 +126,50 @@ def process_laz(self, upload_data):
         'message': 'Сегментация завершена, результат сохранён в файл: ' + output_path
     }
     return result
+@app.task(bind=True, name='visualize_laz')
+def visualize_laz(self, process_data):
+    task_id = self.request.id
+    logger.info(f'Задача visualize_laz запущена: {task_id}')
+
+    # Достаем ID исходной задачи из результатов предыдущего шага
+    if isinstance(process_data, dict):
+        source_task_id = process_data.get('task_id')
+    else:
+        source_task_id = process_data
+
+    output_path = os.path.join("results", f"result_{source_task_id}.laz")
+    html_path = os.path.join("results", f"vis_{source_task_id}.html")
+
+    if not os.path.exists(output_path):
+        raise FileNotFoundError(f"Файл результата не найден: {output_path}")
+
+    # Чтение данных и прореживание
+    las = laspy.read(output_path) 
+    step = 10 # Прореживаем точки для ускорения рендеринга
+    x, y, z = las.x[::step], las.y[::step], las.z[::step]
+    
+    colors = None
+    if hasattr(las, 'classification'):
+        labels = las.classification[::step]
+        # Цвета: 0-красный, 1-зеленый, 2-синий, 3-желтый
+        color_map = {0: 'red', 1: 'green', 2: 'blue', 3: 'yellow'}
+        colors = [color_map.get(int(l), 'gray') for l in labels]
+
+    trace = go.Scatter3d(
+        x=x, y=y, z=z,
+        mode='markers',
+        marker=dict(size=2, color=colors)
+    )
+    
+    fig = go.Figure(data=[trace])
+    fig.update_layout(margin=dict(l=0, r=0, b=0, t=0))
+    
+    # Сохраняем в HTML
+    fig.write_html(html_path)
+    logger.info(f"Визуализация сохранена в файл: {html_path}")
+
+    # Возвращаем обновленные данные
+    if isinstance(process_data, dict):
+        process_data['visualization_path'] = html_path
+        return process_data
+    return {'task_id': source_task_id, 'visualization_path': html_path}
