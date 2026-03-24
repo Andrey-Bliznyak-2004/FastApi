@@ -7,7 +7,7 @@ from celery import Celery
 from celery.utils.log import get_task_logger
 from utils import read_las, segment_point_cloud, save_segmented_las, generate_plotly_html
 import time
-
+import plotly.graph_objs as go
 
 REDIS_PORT = 6379
 REDIS_DB = 0

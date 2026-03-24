@@ -7,7 +7,7 @@ from torch_geometric.transforms import KNNGraph
 from model import DGCNN_seg
 import os
 import time
-
+import plotly.graph_objs as go
 K = 16
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 BLOCK_SIZE = 8192

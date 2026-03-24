@@ -10,7 +10,7 @@ from celery import chain
 from tasks import app as celery_app
 from tasks import upload_laz, process_laz, generate_visualization_task
 from celery.result import AsyncResult
-
+import plotly.graph_objs as go
 # Настройка логгирования
 logger = logging.getLogger("PointcloudAPI")
 logger.setLevel(logging.INFO)
