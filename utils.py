@@ -148,7 +148,7 @@ def generate_plotly_html(file_path):
 
     las = laspy.read(file_path)
     # Субсемплинг для производительности (каждая 5-я точка)
-    step = 5 
+    step = 1 
     x, y, z = las.x[::step], las.y[::step], las.z[::step]
     
     colors = None

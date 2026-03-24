@@ -54,21 +54,19 @@ async def process_file(file: UploadFile = File(...)):
 
     logger.info(f"Файл {file.filename} сохранен: {temp_path}")
 
-    # Формируем цепочку (Chain). 
-    # Результат ID будет принадлежать последней задаче (визуализации).
+   
     workflow = (
-        upload_laz.s(temp_path) | 
-        process_laz.s() | 
-        generate_visualization_task.s()
+        upload_laz.s(temp_path) |
+        process_laz.s() |                   
+        generate_visualization_task.s()     
     )
-    result = workflow.apply_async()
 
+    async_result = workflow.apply_async()    # ← сохраняем!
     logger.info(f"Цепочка задач запущена. ID финальной задачи: {result.id}")
-
     return {
-        "task_id": result.id,
-        "status": "в_очереди",
-        "info": "Файл принят. Запущена обработка и подготовка визуализации."
+        "task_id": async_result.id,          # ← это ID именно generate_visualization_task
+        "status": "PENDING",
+        "info": "Обработка запущена"
     }
 
 @app.get("/status/{task_id}")
