@@ -147,7 +147,7 @@ async def visualize_web(task_id: str):
 
     # Чтение данных
     las = laspy.read(output_path) 
-    step = 100 
+    step = 1
     x, y, z = las.x[::step], las.y[::step], las.z[::step]
     
     # Извлечение цветов, если они есть
