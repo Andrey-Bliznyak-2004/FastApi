@@ -34,13 +34,7 @@ services:
       - redis
     networks:
       - pointcloud_net
-deploy:
-  resources:
-    reservations:
-      devices:
-        - driver: nvidia
-          count: 1
-          capabilities: [gpu]
+
 networks:
   pointcloud_net:
     driver: bridge

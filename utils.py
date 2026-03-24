@@ -7,6 +7,7 @@ from torch_geometric.transforms import KNNGraph
 from model import DGCNN_seg
 import os
 import time
+import plotly.graph_objs as go
 
 K = 16
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -140,3 +141,33 @@ def save_segmented_las(file_path, points, rgb, labels, output_path):
     las.classification = labels.astype(np.uint8)
 
     las.write(output_path)
+def generate_plotly_html(file_path):
+    """Генерирует HTML-строку с 3D визуализацией облака точек."""
+    if not os.path.exists(file_path):
+        return None
+
+    las = laspy.read(file_path)
+    # Субсемплинг для производительности (каждая 5-я точка)
+    step = 5 
+    x, y, z = las.x[::step], las.y[::step], las.z[::step]
+    
+    colors = None
+    if hasattr(las, 'classification'):
+        labels = las.classification[::step]
+        # Маппинг цветов (согласно вашему client.py)
+        color_map = {0: 'red', 1: 'green', 2: 'blue', 3: 'yellow'}
+        colors = [color_map.get(l, 'white') for l in labels]
+
+    trace = go.Scatter3d(
+        x=x, y=y, z=z,
+        mode='markers',
+        marker=dict(size=1.5, color=colors, opacity=0.8)
+    )
+    
+    fig = go.Figure(data=[trace])
+    fig.update_layout(
+        scene=dict(aspectmode='data'),
+        margin=dict(l=0, r=0, b=0, t=0)
+    )
+    
+    return fig.to_html(full_html=True, include_plotlyjs='cdn')

@@ -4,19 +4,16 @@ import logging
 from logging.handlers import RotatingFileHandler
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
-from starlette.background import BackgroundTask
 import uvicorn
+
 from tasks import app as celery_app
-from tasks import upload_laz, process_laz, visualize_laz
+from tasks import upload_laz, process_laz, generate_visualization_task
 from celery.result import AsyncResult
-import plotly.graph_objs as go
-import numpy as np
-import laspy
+
 # Настройка логгирования
 logger = logging.getLogger("PointcloudAPI")
 logger.setLevel(logging.INFO)
 
-# Логгирование в файл с ротацией
 file_handler = RotatingFileHandler(
     "app.log",
     maxBytes=5 * 1024 * 1024,
@@ -35,16 +32,14 @@ stream_handler.setFormatter(
 logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
-# Директории для загрузки и хранения результатов
+# Директории для данных
 UPLOAD_DIR = "uploads"
 RESULT_DIR = "results"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(RESULT_DIR, exist_ok=True)
 
-# Инициализация FastAPI
 app = FastAPI(title="Шлюз сегментатора облаков точек")
 
-# Маршрут для загрузки и обработки файла 
 @app.post("/process/")
 async def process_file(file: UploadFile = File(...)):
     if not file.filename.endswith(('.las', '.laz')):
@@ -57,104 +52,86 @@ async def process_file(file: UploadFile = File(...)):
     with open(temp_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    logger.info(f"Файл {file.filename} успешно сохранён по пути: {temp_path}")
-    logger.info("Запуск цепочки задач Celery (upload_laz → process_laz)")
+    logger.info(f"Файл {file.filename} сохранен: {temp_path}")
 
-    # Сначала загружаем файл, затем запускаем обработку 
-    chain = (upload_laz.s(temp_path) | process_laz.s())
-    result = chain.apply_async()
+    # Формируем цепочку (Chain). 
+    # Результат ID будет принадлежать последней задаче (визуализации).
+    workflow = (
+        upload_laz.s(temp_path) | 
+        process_laz.s() | 
+        generate_visualization_task.s()
+    )
+    result = workflow.apply_async()
 
-    logger.info(f"Задача Celery успешно поставлена в очередь. ID: {result.id}")
+    logger.info(f"Цепочка задач запущена. ID финальной задачи: {result.id}")
 
-    # Возвращаем ID задачи и статус
     return {
         "task_id": result.id,
         "status": "в_очереди",
-        "info": "Файл принят и поставлен в очередь на обработку"
+        "info": "Файл принят. Запущена обработка и подготовка визуализации."
     }
 
-# Маршрут для получения статуса задачи по айди 
 @app.get("/status/{task_id}")
 async def get_status(task_id: str):
-    logger.info(f"Получен запрос статуса для задачи: {task_id}")
-
-    # Получаем результат из Celery
     res = AsyncResult(task_id, app=celery_app)
     response = {"task_id": task_id, "state": res.state}
 
-    # Обработка разных состояний типа ожидания, обработки и готовнисти
     if res.state == 'PENDING':
-        response["status"] = "Ожидание"
-        response["message"] = "Задача ожидает запуска в очереди"
+        response.update({
+            "status": "Ожидание",
+            "message": "Задача ожидает выполнения"
+        })
     elif res.state == 'PROCESSING':
-        response["progress"] = res.info.get('progress') if isinstance(res.info, dict) else None
-        response["message"] = res.info.get('message') if isinstance(res.info, dict) else "Обработка в процессе"
-        response["eta"] = res.info.get('eta') if isinstance(res.info, dict) else "Оценивается..." 
+        # Данные о прогрессе и ETA передаются через self.update_state в tasks.py
+        info = res.info if isinstance(res.info, dict) else {}
+        response.update({
+            "status": "Обработка",
+            "progress": info.get('progress', 0),
+            "eta": info.get('eta', "Расчет..."),
+            "message": info.get('message', "")
+        })
     elif res.state == 'SUCCESS':
-        response["status"] = "Готово"
-        response["result_summary"] = res.result
+        response.update({
+            "status": "Готово",
+            "result_summary": res.result
+        })
     elif res.state == 'FAILURE':
-        response["status"] = "Ошибка"
-        response["error_detail"] = str(res.info)
-    else:
-        response["status"] = "неизвестно"
-        response["message"] = "Неизвестное состояние задачи"
-
+        response.update({
+            "status": "Ошибка",
+            "error_detail": str(res.info)
+        })
+    
     return response
 
-# Скачивание результата
 @app.get("/download/{task_id}")
 async def download_file(task_id: str):
-    logger.info(f"Получен запрос на скачивание результата для задачи: {task_id}")
-
-    # Получаем результат из Celery
-    res = AsyncResult(task_id, app=celery_app)
-
-    if not res.ready():
-        raise HTTPException(
-            status_code=400,
-            detail="Задача всё ещё обрабатывается или не найдена"
-        )
-
-    if res.failed():
-        raise HTTPException(
-            status_code=500,
-            detail="Задача завершилась с ошибкой"
-        )
-
     output_path = os.path.join(RESULT_DIR, f"result_{task_id}.laz")
 
     if not os.path.exists(output_path):
-        logger.error(f"Файл результата {output_path} не найден на диске!")
         raise HTTPException(
             status_code=404,
-            detail="Файл результата отсутствует на сервере"
+            detail="Файл результата не найден. Возможно, обработка еще не завершена."
         )
-
-    logger.info(f"Файл результата найден. Начинаем отправку: {output_path}")
 
     return FileResponse(
         output_path,
         media_type='application/octet-stream',
         filename=f"segmented_{task_id}.laz"
     )
-@app.get("/visualize/{task_id}")
+
+@app.get("/visualize/{task_id}", response_class=HTMLResponse)
 async def visualize_web(task_id: str):
-    html_path = os.path.join(RESULT_DIR, f"vis_{task_id}.html")
+    html_path = os.path.join(RESULT_DIR, f"viz_{task_id}.html")
     
     if not os.path.exists(html_path):
-        raise HTTPException(
-            status_code=404, 
-            detail="Файл визуализации ещё не готов или задача завершилась с ошибкой."
-        )
+        # Проверяем, готова ли задача
+        res = AsyncResult(task_id, app=celery_app)
+        if not res.ready():
+            raise HTTPException(status_code=202, detail="Визуализация еще подготавливается")
+        raise HTTPException(status_code=404, detail="Файл визуализации не найден")
 
-    return FileResponse(html_path, media_type="text/html")
-    
-def cleanup_files(temp_path: str):
-    if os.path.exists(temp_path):
-        os.remove(temp_path)
-        logger.info(f"Временный файл {temp_path} успешно удалён")
+    with open(html_path, "r", encoding="utf-8") as f:
+        return f.read()
 
-# Запуск приложения
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
