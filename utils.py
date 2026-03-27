@@ -8,12 +8,97 @@ from model import DGCNN_seg
 import os
 import time
 import plotly.graph_objs as go
+import io 
+import logging
+from logging.handlers import RotatingFileHandler
 K = 16
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 BLOCK_SIZE = 8192
 CHECKPOINT_PATH = 'last_model.pth' 
+from minio import Minio
+from minio.error import S3Error
+logger = logging.getLogger("Minio")
+logger.setLevel(logging.INFO)
+
+file_handler = RotatingFileHandler(
+    "app.log",
+    maxBytes=5 * 1024 * 1024,
+    backupCount=5,
+    encoding='utf-8'
+)
+file_handler.setFormatter(
+    logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+)
+
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(
+    logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+)
+
+logger.addHandler(file_handler)
+logger.addHandler(stream_handler)
+
+
+os.environ["MLFLOW_S3_ENDPOINT_URL"] = "http://localhost:9000"
+os.environ["AWS_ACCESS_KEY_ID"] = "minioadmin"
+os.environ["AWS_SECRET_ACCESS_KEY"] = "minioadmin"
+
+def load_model_from_minio(bucket_name='models', object_name='last_model.pth'):
+    client = Minio("localhost:9000", access_key="minioadmin", secret_key="minioadmin", secure=False)
+    
+    try:
+        
+       
+        if not client.bucket_exists(bucket_name):
+            logger.info(f"Bucket '{bucket_name}' does not exist")
+            raise FileNotFoundError(f"Bucket '{bucket_name}' does not exist")
+        logger.info(f"Bucket '{bucket_name}' exists")
+        
+        # Проверка наличия объекта
+        try:
+            stats = client.stat_object(bucket_name, object_name)
+            logger.info(f"Object found: size={stats.size} bytes")
+        except S3Error as e:
+            logger.error(f"Object '{object_name}' not found: {e}")
+            raise
+        
+        # Загрузка
+        logger.info(f"Downloading {bucket_name}/{object_name}...")
+        response = client.get_object(bucket_name, object_name)
+        model_bytes = response.read()
+        response.close()
+        response.release_conn()
+        logger.info(f"Downloaded {len(model_bytes)} bytes")
+        
+        # Загрузка в PyTorch
+        logger.info("Loading model from bytes...")
+        checkpoint = torch.load(io.BytesIO(model_bytes), map_location=DEVICE)
+        
+        # Проверка содержимого
+        if 'model_state_dict' in checkpoint:
+            logger.info("Found 'model_state_dict' in checkpoint")
+        else:
+            logger.info("No 'model_state_dict' in checkpoint, using as is")
+        
+        model = DGCNN_seg(in_channels=3, out_channels=4, k=K)
+        
+        if 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            model.load_state_dict(checkpoint)
+        
+        model.to(DEVICE)
+        model.eval()
+        
+        logger.info(f"Model successfully loaded from MinIO")
+        return model
+        
+    except Exception as e:
+        logger.error(f"Failed to load model from MinIO: {type(e).__name__}: {e}")
+        raise
 
 def load_model():
+    """Загрузка из локального файла (как fallback)."""
     model = DGCNN_seg(in_channels=3, out_channels=4, k=K)
     if not os.path.exists(CHECKPOINT_PATH):
         raise FileNotFoundError(f'Checkpoint not found: {CHECKPOINT_PATH}')
@@ -29,7 +114,11 @@ _knn_transform = KNNGraph(k=K)
 def get_model():
     global _model
     if _model is None:
-        _model = load_model()
+        try:
+            _model = load_model_from_minio()
+        except Exception:
+            logger.error("MinIO model not available, trying local file...")
+            _model = load_model()
     return _model
 
 def read_las(file_path, load_points=True):
@@ -49,7 +138,7 @@ def read_las(file_path, load_points=True):
             rgb = rgb_raw.astype(np.float32) / 255.0
     else:
         rgb = np.zeros((len(points), 3), dtype=np.float32)
-        print('Warning: No RGB data found, using zeros')
+        logger.info('Warning: No RGB data found, using zeros')
 
     metadata = {
         'filename': os.path.basename(file_path),
@@ -183,5 +272,5 @@ def generate_plotly_html(file_path, max_points=500000):
         return fig.to_html(include_plotlyjs='cdn', full_html=True)
         
     except Exception as e:
-        print(f"Error generating Plotly visualization: {e}")
+        logger.error(f"Error generating Plotly visualization: {e}")
         return None

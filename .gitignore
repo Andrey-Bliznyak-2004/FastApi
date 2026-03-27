@@ -9,6 +9,6 @@ uploads/
 results/
 *.laz
 *.las
-*.pth
+
 .vscode/
 .idea/

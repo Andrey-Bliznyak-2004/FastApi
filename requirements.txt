@@ -1,9 +1,30 @@
-fastapi
-uvicorn[standard]
-celery
-redis
-python-multipart
-laspy[lazrs,pylas]
-numpy
-open3d
-plotly
+# Core Web Framework
+fastapi==0.135.1
+uvicorn[standard]==0.41.0
+python-multipart==0.0.22
+
+# Celery & Redis
+celery==5.6.2
+redis==7.3.0
+
+# ML/DL - специфичные версии для вашего проекта
+torch==2.1.0
+torch-geometric==2.7.0
+numpy==1.26.4
+
+# Point Cloud Processing
+laspy==2.7.0
+lazrs==0.8.1
+
+# Visualization
+plotly==6.5.2
+
+# Storage & MLflow
+minio==7.2.20
+mlflow==3.10.1
+boto3==1.42.59
+
+# Utilities
+python-dotenv==1.2.2
+tqdm==4.67.3
+pyarrow==23.0.1

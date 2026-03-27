@@ -7,8 +7,9 @@ FastAPI-based service for segmenting LiDAR point clouds (.las/.laz) using DGCNN 
 3. vehicles
 
 ### Before using this, you need:
-- Python 3.8+
-- redis server on port 6379
+- **Python 3.9+**
+- **Docker** and **Docker Compose** (for Redis, MinIO, MLflow)
+- If you want to use your **GPU**, you need to install **CUDA** 
 
 ### How to install
 * Create virtual environment
@@ -18,7 +19,8 @@ venv\Scripts\activate
 * Install dependencies
 pip install -r requirements.txt
 
-* Start Redis
+* Start Redis, MinIO, and MLflow
+- docker compose up -d
 
 # Run project (recomend use 2 terminals)
 ### First terminal
@@ -31,3 +33,6 @@ pip install -r requirements.txt
 - copy the 'task_id'
 - past 'task_id' in second block
 - after finishing segmentsnion, past 'task_id' in third block to download result file
+# If you want to use the other model
+### You can place it in folder 
+### Or create using my another project

@@ -1,40 +1,72 @@
 version: '3.8'
 
 services:
+  # MinIO - S3-совместимое хранилище
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # API MinIO (S3)
+      - "9001:9001"   # веб‑консоль
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+    networks:
+      - ml_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # MLflow Tracking Server
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    container_name: mlflow
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:///mlflow/mlflow.db
+      --default-artifact-root s3://mlflow-artifacts/
+      --artifacts-destination s3://mlflow-artifacts/
+    ports:
+      - "5000:5000"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      MLFLOW_TRACKING_URI: http://0.0.0.0:5000
+    volumes:
+      - mlflow_data:/mlflow
+    restart: unless-stopped
+    networks:
+      - ml_network
+
+  # Redis для Celery (инференс)
   redis:
     image: redis:alpine
+    container_name: redis
     ports:
       - "6379:6379"
-    networks:
-      - pointcloud_net
-
-  api:
-    build: .
-    ports:
-      - "8000:8000"
-    environment:
-      - REDIS_URL=redis://redis:6379/0
     volumes:
-      - ./uploads:/app/uploads
-      - ./results:/app/results
-    depends_on:
-      - redis
+      - redis_data:/data
     networks:
-      - pointcloud_net
+      - ml_network
+    restart: unless-stopped
 
-  worker:
-    build: .
-    command: python worker.py
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-    volumes:
-      - ./uploads:/app/uploads
-      - ./results:/app/results
-    depends_on:
-      - redis
-    networks:
-      - pointcloud_net
+volumes:
+  minio_data:
+  mlflow_data:
+  redis_data:
 
 networks:
-  pointcloud_net:
+  ml_network:
     driver: bridge
